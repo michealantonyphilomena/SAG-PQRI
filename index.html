@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Student Assessment</title>
+<style>
+  :root { --navy:#1f3a5f; --blue:#2f6fed; --light:#f3f6fb; --border:#d5deec; --ok:#1e8e4e; --text:#1d2433; }
+  * { box-sizing: border-box; }
+  body { margin:0; font-family: "Segoe UI", Arial, sans-serif; background: var(--light); color: var(--text); }
+  header { background: var(--navy); color:#fff; padding:16px 24px; font-size:1.2rem; font-weight:600; }
+  main { max-width: 720px; margin: 28px auto; padding: 0 16px; }
+  .card { background:#fff; border:1px solid var(--border); border-radius:12px; padding:28px; box-shadow:0 2px 8px rgba(31,58,95,.06); }
+  h2 { margin:0 0 6px; color: var(--navy); }
+  p.sub { margin:0 0 20px; color:#5b667a; }
+  label { display:block; margin:14px 0 6px; font-weight:600; font-size:.92rem; }
+  input[type=text] { width:100%; padding:11px 12px; border:1px solid var(--border); border-radius:8px; font-size:1rem; }
+  input[type=text]:focus { outline:2px solid var(--blue); border-color:transparent; }
+  button { margin-top:22px; padding:12px 26px; font-size:1rem; font-weight:600; border:0; border-radius:8px; background:var(--blue); color:#fff; cursor:pointer; }
+  button:disabled { background:#aab6cc; cursor:not-allowed; }
+  .err { color:#c0392b; margin-top:12px; min-height:1.2em; font-size:.92rem; }
+  .hidden { display:none; }
+  .topbar { display:flex; justify-content:space-between; font-size:.9rem; color:#5b667a; margin-bottom:8px; }
+  .bar { height:8px; background:#e4eaf5; border-radius:99px; overflow:hidden; margin-bottom:22px; }
+  .bar > div { height:100%; width:0; background:var(--blue); transition:width .25s; }
+  .qtext { font-size:1.15rem; font-weight:600; margin-bottom:18px; line-height:1.45; }
+  .opt { display:flex; align-items:center; gap:12px; padding:13px 14px; margin-bottom:10px; border:1px solid var(--border); border-radius:10px; cursor:pointer; transition:background .15s, border-color .15s; }
+  .opt:hover { background:#f0f5ff; }
+  .opt.sel { border-color:var(--blue); background:#e8f0ff; }
+  .opt .letter { width:28px; height:28px; border-radius:50%; background:#e4eaf5; display:flex; align-items:center; justify-content:center; font-weight:700; font-size:.85rem; flex:none; }
+  .opt.sel .letter { background:var(--blue); color:#fff; }
+  .result { text-align:center; }
+  .score { font-size:3rem; font-weight:700; color:var(--ok); margin:10px 0 0; }
+  @media (max-width:520px){ .card{padding:20px;} }
+</style>
+</head>
+<body>
+<header>Student Results Assessment</header>
+<main>
+
+  <!-- Step 1: student details -->
+  <section id="start" class="card">
+    <h2>Welcome</h2>
+    <p class="sub">Enter your details to begin. The quiz has {{ total }} multiple-choice questions.</p>
+    <label for="name">Name</label>
+    <input type="text" id="name" autocomplete="off" placeholder="Your full name">
+    <label for="cls">Class</label>
+    <input type="text" id="cls" autocomplete="off" placeholder="e.g. 10-A">
+    <div class="err" id="startErr"></div>
+    <button id="startBtn">Start Quiz</button>
+  </section>
+
+  <!-- Step 2: quiz -->
+  <section id="quiz" class="card hidden">
+    <div class="topbar"><span id="counter"></span><span id="who"></span></div>
+    <div class="bar"><div id="progress"></div></div>
+    <div class="qtext" id="qtext"></div>
+    <div id="options"></div>
+    <div class="err" id="quizErr"></div>
+    <button id="nextBtn" disabled>Next</button>
+  </section>
+
+  <!-- Step 3: done -->
+  <section id="done" class="card result hidden">
+    <h2>Quiz completed</h2>
+    <p class="sub" id="doneName"></p>
+    <div class="score" id="scoreText"></div>
+    <p class="sub" id="pctText"></p>
+    <p class="sub">Your responses have been recorded. You may close this page.</p>
+  </section>
+
+</main>
+
+<script>
+  const $ = id => document.getElementById(id);
+  let questions = [], answers = [], current = 0, qStart = 0, selected = null, student = {};
+
+  $("startBtn").onclick = async () => {
+    const name = $("name").value.trim(), cls = $("cls").value.trim();
+    if (!name || !cls) { $("startErr").textContent = "Please enter both your name and class."; return; }
+    $("startBtn").disabled = true; $("startErr").textContent = "Loading questions...";
+    try {
+      const r = await fetch("/api/questions");
+      const data = await r.json();
+      if (!r.ok) throw new Error(data.error || "Could not load questions");
+      questions = data.questions;
+      if (!questions.length) throw new Error("No questions available.");
+    } catch (e) {
+      $("startErr").textContent = e.message; $("startBtn").disabled = false; return;
+    }
+    student = { name, class: cls };
+    $("who").textContent = name + " | " + cls;
+    $("start").classList.add("hidden"); $("quiz").classList.remove("hidden");
+    showQuestion();
+  };
+
+  function showQuestion() {
+    const q = questions[current];
+    selected = null;
+    $("counter").textContent = "Question " + (current + 1) + " of " + questions.length;
+    $("progress").style.width = (current / questions.length * 100) + "%";
+    $("qtext").textContent = q.question;
+    $("nextBtn").textContent = current === questions.length - 1 ? "Submit" : "Next";
+    $("nextBtn").disabled = true; $("quizErr").textContent = "";
+    const box = $("options"); box.innerHTML = "";
+    q.options.forEach((text, i) => {
+      const d = document.createElement("div");
+      d.className = "opt";
+      d.innerHTML = '<span class="letter">' + "ABCD"[i] + '</span><span></span>';
+      d.lastChild.textContent = text;
+      d.onclick = () => {
+        selected = i;
+        [...box.children].forEach(c => c.classList.remove("sel"));
+        d.classList.add("sel");
+        $("nextBtn").disabled = false;
+      };
+      box.appendChild(d);
+    });
+    qStart = performance.now();   // timer starts when the question appears
+  }
+
+  $("nextBtn").onclick = async () => {
+    const seconds = (performance.now() - qStart) / 1000;
+    answers.push({ id: questions[current].id, selected: selected, time: Math.round(seconds * 100) / 100 });
+    current++;
+    if (current < questions.length) { showQuestion(); return; }
+
+    $("nextBtn").disabled = true; $("nextBtn").textContent = "Submitting...";
+    try {
+      const r = await fetch("/api/submit", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ...student, answers })
+      });
+      const res = await r.json();
+      if (!r.ok) throw new Error(res.error || "Submission failed");
+      $("quiz").classList.add("hidden"); $("done").classList.remove("hidden");
+      $("doneName").textContent = student.name + " (" + student.class + ")";
+      $("scoreText").textContent = res.score + " / " + res.total;
+      $("pctText").textContent = res.percentage + "%";
+    } catch (e) {
+      $("quizErr").textContent = e.message + " - please tell your teacher.";
+      $("nextBtn").textContent = "Retry submit"; $("nextBtn").disabled = false;
+      current = questions.length - 1; answers.pop();   // allow resubmitting the last answer
+    }
+  };
+</script>
+</body>
+</html>
